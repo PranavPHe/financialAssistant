@@ -1,31 +1,26 @@
 package src;
 
-import java.util.Scanner;
-import java.util.Currency;
-import java.io.Console;
+import java.util.*;
+import java.io.*;
 import java.text.NumberFormat;
-import java.util.Locale;
-import java.util.List;
-import java.util.ArrayList;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 
 public class Main {
+    // All code is contained within the app
     public static void main(String[] args) {
         App app = new App();
-        try {
-            app.run();
-        } finally {
-            app.close();
-        }
+        app.run();
     }
 
+    // Flushes the screen on Unix and Windows terminals
     public static void clearScreen() {
         System.out.print("\033[H\033[2J");
         System.out.flush();
     }
 
+    // Prints the ASCII art title with colors
     public static void printTitle(String COLOR, String RESET) {
         String title = """
 
@@ -45,6 +40,7 @@ public class Main {
         System.out.println(COLOR + title + RESET);
     }
 
+    // Finds a Locale that uses the given currency code
     public static Locale findLocaleForCurrency(String currencyCode) {
         if (currencyCode == null || currencyCode.isEmpty())
             return null;
@@ -59,13 +55,10 @@ public class Main {
         }
         return null;
     }
-
-    public static void printDashboard() {
-        System.out.println("[DASHBOARD]");
-    }
 }
 
 class App {
+    private static final String DATA_DIR = "data";
     private final String RESET = "\u001B[0m";
     private final String GREEN = "\u001B[1;32m";
     private final String RED = "\u001B[1;31m";
@@ -75,69 +68,111 @@ class App {
     private final Console console = System.console();
 
     private String username;
+    private String password;
     private String preferredName;
     private String currencyCode;
     private double budgetAmount = 0.0;
     private final List<Expense> expenses = new ArrayList<>();
     private final DateTimeFormatter dateFmt = DateTimeFormatter.ISO_LOCAL_DATE;
 
+    // Runs the main application loop (Clear screen -> Title -> Sign in/register -> Dashboard)
     public void run() {
+        new File(DATA_DIR).mkdirs();
         Main.printTitle(GREEN, RESET);
 
         int signOption = promptSignOption();
 
+        Main.clearScreen();
+        Main.printTitle(GREEN, RESET);
+
         if (signOption == 1) {
-            Main.clearScreen();
-            Main.printTitle(GREEN, RESET);
-            registerUser();
+            if (registerUser()) dashboardLoop();
         } else {
-            System.out.println(GREEN + "Login flow not implemented yet." + RESET);
+            if (loginUser()) dashboardLoop();
         }
     }
 
+    // Prompts the user to select sign-in or register option
     private int promptSignOption() {
         int signOption;
         do {
-            System.out.print(
-                    GREEN + "\n1. Register \n2. Login" + RESET +
-                            "\nPlease select an option: ");
+            System.out.print(GREEN + "\n1. Register \n2. Login" + RESET + "\nPlease select an option: ");
             while (!input.hasNextInt()) {
                 System.out.println(RED + "Please enter a number (1 or 2)." + RESET);
                 input.next();
                 System.out.print("Please select an option: ");
             }
             signOption = input.nextInt();
-
-            if (signOption != 1 && signOption != 2) {
+            if (signOption != 1 && signOption != 2)
                 System.out.println(RED + "Invalid option. Please select either 1 or 2." + RESET);
-            }
-
         } while (signOption != 1 && signOption != 2);
-
         input.nextLine();
         return signOption;
     }
 
-    public void registerUser() {
-        // Username
-        String username;
-        while (true) {
-            System.out.print("Please enter a username: ");
-            username = input.nextLine().trim();
+    // Attempts to log in a user by verifying username and password
+    private boolean loginUser() {
+        System.out.print("Username: ");
+        String user = input.nextLine().trim().toLowerCase().replaceAll("\\s+", "");
 
-            if (username.isEmpty()) {
-                System.out.println("Username cannot be empty. Try again.");
+        // Check if user file exists
+        File userFile = new File(DATA_DIR, user + ".txt");
+        if (!userFile.exists()) {
+            System.out.println(RED + "User not found." + RESET);
+            return false;
+        }
+
+
+        // Attempt to verify password and load user data
+        for (int tries = 0; tries < 3; tries++) {
+            String pass = readPassword("Password: ");
+            try (BufferedReader r = new BufferedReader(new FileReader(userFile))) {
+                String storedPass = r.readLine();
+                if (pass.equals(storedPass)) {
+                    this.username = user;
+                    this.password = pass;
+                    this.preferredName = r.readLine();
+                    this.currencyCode = r.readLine();
+                    this.budgetAmount = Double.parseDouble(r.readLine());
+                    String line;
+
+                    // Load expenses from file
+                    while ((line = r.readLine()) != null) {
+                        String[] parts = line.split("\\|", 3);
+                        if (parts.length == 3)
+                            expenses.add(new Expense(parts[1], Double.parseDouble(parts[2]), parts[0]));
+                    }
+                    System.out.println(GREEN + "Welcome back, " + displayName() + "!" + RESET);
+                    return true;
+                }
+                System.out.println(RED + "Incorrect password. " + (2 - tries) + " tries left." + RESET);
+            } catch (Exception e) {
+                System.out.println(RED + "Error loading data." + RESET);
+                return false;
+            }
+        }
+        System.out.println(RED + "Too many failed attempts." + RESET);
+        return false;
+    }
+
+    // Registers a new user by collecting username, password, and profile info
+    public boolean registerUser() {
+        String user;
+        while (true) {
+            System.out.print("Choose a username: ");
+            user = input.nextLine().trim().toLowerCase();
+
+            if (user.isEmpty()) {
+                System.out.println(RED + "Username cannot be empty. Try again." + RESET);
                 continue;
             }
 
-            if (username.contains(" ")) {
-                String suggestedUser = username.replaceAll("\\s", "");
-                System.out.print(
-                        YELLOW + "Usernames may not contain spaces. Use '" +
-                                suggestedUser + "' instead? (Y/N): " + RESET);
+            if (user.contains(" ")) {
+                String suggested = user.replaceAll("\\s+", "");
+                System.out.print(YELLOW + "Usernames may not contain spaces. Use '" + suggested + "' instead? (Y/N): " + RESET);
                 String resp = input.nextLine().trim();
                 if (resp.equalsIgnoreCase("Y") || resp.equalsIgnoreCase("YES")) {
-                    username = suggestedUser;
+                    user = suggested;
                     break;
                 } else {
                     continue;
@@ -146,108 +181,60 @@ class App {
             break;
         }
 
-        this.username = username;
-        char[] passwordChars = null;
-
-        try {
-            while (true) {
-                if (console != null) {
-                    passwordChars = console.readPassword("\nEnter password: ");
-                } else {
-                    System.out.print("\nEnter password: ");
-                    passwordChars = input.nextLine().toCharArray();
-                }
-
-                if (passwordChars == null || passwordChars.length == 0) {
-                    System.out.println(RED + "Password cannot be empty. Try again." + RESET);
-                    continue;
-                }
-
-                char[] confirmChars;
-                if (console != null) {
-                    confirmChars = console.readPassword("Confirm password: ");
-                } else {
-                    System.out.print("Confirm password: ");
-                    confirmChars = input.nextLine().toCharArray();
-                }
-
-                boolean match = java.util.Arrays.equals(passwordChars, confirmChars);
-                if (confirmChars != null)
-                    java.util.Arrays.fill(confirmChars, ' ');
-
-                if (!match) {
-                    System.out.println(RED + "Passwords do not match. Please try again." + RESET);
-                    continue;
-                }
-                break;
-            }
-
-            System.out.println("Registered user: '" + username + "'");
-        } finally {
-            if (passwordChars != null)
-                java.util.Arrays.fill(passwordChars, ' ');
+        // Check if username already exists
+        if (new File(DATA_DIR, user + ".txt").exists()) {
+            System.out.println(RED + "Username already exists." + RESET);
+            return false;
         }
+
+        // Prompt for password and confirmation (not visible input for security)
+        String pass = readPassword("\nChoose a password: ");
+        String confirm = readPassword("Confirm password: ");
+        if (!pass.equals(confirm)) {
+            System.out.println(RED + "Passwords do not match." + RESET);
+            return false;
+        }
+
+        this.username = user;
+        this.password = pass;
+        System.out.println(GREEN + "Registered: " + user + RESET);
 
         Main.clearScreen();
         Main.printTitle(GREEN, RESET);
+        System.out.println("Welcome, " + user + "! Let's set up your profile.\n");
 
-        System.out.println("Welcome, " + username + "! Let's set up your profile.\n");
+        System.out.print("Preferred name: ");
+        this.preferredName = input.nextLine().trim();
 
-        System.out.print("Please enter your preferred name: ");
-        String preferredName = input.nextLine().trim();
-        this.preferredName = preferredName;
-        System.out.println(YELLOW + "Preferred name set to: " + preferredName + RESET);
-
-        Currency currency = null;
-        String currencyType;
-
+        // Prompt for currency code and validate
         while (true) {
-            System.out.print("\nPlease enter your currency code (e.g., USD, EUR): ");
-            currencyType = input.nextLine().trim().toUpperCase();
-
-            if (currencyType.isEmpty()) {
-                System.out.println(RED + "Currency code cannot be empty. Try again." + RESET);
-                continue;
-            }
-
+            System.out.print("Currency code (e.g., USD, EUR): ");
+            String code = input.nextLine().trim().toUpperCase();
             try {
-                currency = Currency.getInstance(currencyType);
+                Currency.getInstance(code);
+                this.currencyCode = code;
                 break;
-            } catch (IllegalArgumentException e) {
-                System.out.println(RED + "Currency code '" + currencyType + "' not found. Please try again." + RESET);
+            } catch (Exception e) {
+                System.out.println(RED + "Invalid currency code." + RESET);
             }
         }
 
-        System.out.println(YELLOW + "Default currency set to: " + currency.getCurrencyCode() + RESET);
-        this.currencyCode = currency.getCurrencyCode();
-
-        System.out.print("\nPlease enter your current balance: ");
-        String balance = input.nextLine().trim();
-
-        double amount = 0d;
-        boolean parsed = false;
-        try {
-            NumberFormat parser = NumberFormat.getNumberInstance();
-            Number num = parser.parse(balance);
-            amount = num.doubleValue();
-            parsed = true;
-        } catch (Exception e) {
-            parsed = false;
-        }
-
-        if (parsed) {
-            System.out.println(YELLOW + "Current balance set to: " + fmt(amount) + RESET);
-        } else {
-            System.out.println(YELLOW + "Current balance set to: " + balance + " " + currency.getCurrencyCode() + RESET);
-        }
-
-        this.budgetAmount = parsed ? amount : 0.0;
-
-        System.out.print("\n ");
-
-        dashboardLoop();
+        this.budgetAmount = promptDouble("Starting budget: ");
+        saveData();
+        return true;
     }
 
+    // Reads a password from the console
+    private String readPassword(String prompt) {
+        if (console != null) {
+            char[] chars = console.readPassword(prompt);
+            return chars != null ? new String(chars) : "";
+        }
+        System.out.print(prompt);
+        return input.nextLine();
+    }
+
+    // Main dashboard loop for user interaction
     private void dashboardLoop() {
         boolean running = true;
         while (running) {
@@ -275,6 +262,7 @@ class App {
         System.out.println(GREEN + "Exiting dashboard." + RESET);
     }
 
+    // Displays the main dashboard with budget and expense summary
     private void showDashboard() {
         Main.clearScreen();
         Main.printTitle(GREEN, RESET);
@@ -292,6 +280,7 @@ class App {
         printRecentExpenses(5);
     }
 
+    // Displays analytics about expenses and budget usage
     private void printAnalytics(double totalExpenses) {
         double percentUsed = (budgetAmount > 0.0) ? (totalExpenses / budgetAmount) * 100.0 : 0.0;
         double avgExpense = expenses.isEmpty() ? 0.0 : totalExpenses / expenses.size();
@@ -306,6 +295,7 @@ class App {
         System.out.println(" - Largest expense: " + fmt(highest));
     }
 
+    // Displays a list of recent expenses
     private void printRecentExpenses(int count) {
         System.out.println("\nRecent expenses:");
         if (expenses.isEmpty()) {
@@ -318,19 +308,24 @@ class App {
         }
     }
 
+    // Adds a new expense entry
     private void addExpense() {
         System.out.print("Expense description: ");
         String desc = input.nextLine().trim();
         double amt = promptDouble("Amount: ");
         expenses.add(new Expense(desc, amt, LocalDate.now().format(dateFmt)));
         System.out.println(YELLOW + "Expense added: " + desc + " - " + fmt(amt) + RESET);
+        saveData();
     }
 
+    // Updates the budget amount
     private void updateBudget() {
         this.budgetAmount = promptDouble("Enter new budget amount: ");
         System.out.println(YELLOW + "Budget updated to: " + fmt(budgetAmount) + RESET);
+        saveData();
     }
 
+    // Displays all recorded expenses
     private void viewExpenses() {
         System.out.println("\nAll expenses:");
         if (expenses.isEmpty()) {
@@ -343,14 +338,17 @@ class App {
         pause();
     }
 
+    // Returns the display name (preferred name or username)
     private String displayName() {
         return (preferredName != null && !preferredName.isEmpty()) ? preferredName : username;
     }
 
+    // Calculates the total amount of all expenses
     private double totalExpenses() {
         return expenses.stream().mapToDouble(e -> e.amount).sum();
     }
 
+    // Calculates the number of days expenses have been tracked
     private long daysTracked() {
         if (expenses.isEmpty()) return 0;
         LocalDate earliest = expenses.stream().map(e -> LocalDate.parse(e.date)).min(LocalDate::compareTo).orElse(LocalDate.now());
@@ -359,6 +357,7 @@ class App {
         return Math.max(1, days);
     }
 
+    // Formats a double amount into a currency string based on the current currency code
     private String fmt(double amount) {
         Locale loc = Main.findLocaleForCurrency(currencyCode);
         NumberFormat nf = (loc != null) ? NumberFormat.getNumberInstance(loc) : NumberFormat.getNumberInstance();
@@ -367,29 +366,45 @@ class App {
         return nf.format(amount) + " " + (currencyCode != null ? currencyCode : "");
     }
 
+    // Formats an expense entry for display
     private String formatExpense(Expense e) {
         return e.date + " | " + e.description + " : " + fmt(e.amount);
     }
 
+    // Pauses execution until the user presses Enter
     private void pause() {
         System.out.println("\nPress Enter to continue...");
         input.nextLine();
     }
 
+    // Prompts the user to enter a double value with validation
     private double promptDouble(String prompt) {
         while (true) {
             System.out.print(prompt);
             String line = input.nextLine().trim();
             try {
-                NumberFormat parser = NumberFormat.getNumberInstance();
-                Number n = parser.parse(line);
-                return n.doubleValue();
+                return Double.parseDouble(line.replace(",", ""));
             } catch (Exception ex) {
-                System.out.println(RED + "Invalid number. Try again." + RESET);
+                System.out.println(RED + "Invalid number." + RESET);
             }
         }
     }
 
+    // Saves user data to a file
+    private void saveData() {
+        try (PrintWriter writer = new PrintWriter(new File(DATA_DIR, username + ".txt"))) {
+            writer.println(password);
+            writer.println(preferredName);
+            writer.println(currencyCode);
+            writer.println(budgetAmount);
+            for (Expense e : expenses)
+                writer.println(e.date + "|" + e.description + "|" + e.amount);
+        } catch (Exception e) {
+            System.out.println(RED + "Error saving data." + RESET);
+        }
+    }
+    
+    // Expense struct
     private static class Expense {
         final String description;
         final double amount;
@@ -399,14 +414,6 @@ class App {
             this.description = d;
             this.amount = a;
             this.date = date;
-        }
-    }
-
-    public void close() {
-        try {
-            input.close();
-        } catch (Exception e) {
-            // ignore
         }
     }
 }
