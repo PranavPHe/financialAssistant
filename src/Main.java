@@ -1,3 +1,10 @@
+/**
+* Name: Pranav Pramod
+* Date: 1/23/2026
+* Program Name: FinancialAssistant
+* Description: A console program for companies to be able to manage their financial records, such as seeing their latest, most expensive, or least expensive expenses. The program is meant to make storing company financial records an easier process.
+*/
+
 package src;
 
 import java.util.*;
